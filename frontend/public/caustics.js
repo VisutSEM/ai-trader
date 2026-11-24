@@ -1,0 +1,376 @@
+/*
+ * Zoqira hero caustics (Oct 6) — sunlight through water, drawn with WebGL.
+ * Two counter-drifting caustic webs (animated cell borders, domain-warped so
+ * the filaments curve), chromatic fringes, travelling brightness, faint god-ray
+ * shafts and a depth-graded pool floor; the cursor casts a water-lens ripple
+ * that fades back to the ambient look when idle. No dependencies.
+ *
+ * Mount: <div data-caustics data-colors="#a,#b,#c" data-bg="#04060c" …><canvas></canvas></div>
+ * Options (data-*): colors (2-5 hex, dark → bright), bg, speed, scale,
+ * intensity, dispersion, rays, depth, wobble, mouse.
+ * Without WebGL the container's own CSS background shows; reduced motion and
+ * Save-Data get one still frame; nothing renders while the hero is off-screen
+ * or the tab is hidden.
+ *
+ * Cost (Oct 7, founder: the page froze on every device): the shader runs for
+ * every canvas pixel, and the hero is far taller than the screen, so the
+ * canvas is held to a pixel budget instead of following the screen density.
+ * Phones and touch screens start on a lighter shader (one colour layer
+ * instead of three) at 30 fps. Drawing starts once the page has settled, and
+ * a device that still cannot keep up steps down within about a second per
+ * level — ending on a still frame rather than a frozen page.
+ * While the page scrolls the canvas holds its last frame (Oct 11), so the
+ * scroll has the GPU to itself; the water resumes a beat after it stops.
+ */
+(function () {
+    'use strict';
+
+    var VERT = 'attribute vec2 aPos;void main(){gl_Position=vec4(aPos,0.0,1.0);}';
+
+    var FRAG = [
+        'uniform vec2 uRes;',
+        'uniform float uTime;',
+        'uniform vec3 uMouse;',
+        'uniform vec3 uColors[5];',
+        'uniform float uCount;',
+        'uniform vec3 uBg;',
+        'uniform float uScale, uIntensity, uDispersion, uRays, uDepth, uWobble;',
+
+        'vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}',
+
+        // Animated cells: distance to the nearest and second-nearest point.
+        'vec2 cells(vec2 p,float t){',
+        '  vec2 i=floor(p),f=fract(p);float d1=8.0,d2=8.0;',
+        '  for(int y=-1;y<=1;y++){for(int x=-1;x<=1;x++){',
+        '    vec2 g=vec2(float(x),float(y));vec2 h=hash2(i+g);',
+        '    vec2 r=g+0.5+0.42*sin(t+6.2831*h)-f;float d=dot(r,r);',
+        '    if(d<d1){d2=d1;d1=d;}else if(d<d2){d2=d;}',
+        '  }}',
+        '  return sqrt(vec2(d1,d2));',
+        '}',
+
+        // One caustic web: light gathers where two cells meet.
+        'float web(vec2 p,float t){vec2 c=cells(p,t);float e=c.y-c.x;return exp(-e*6.0)*0.4+exp(-e*18.0)*0.85+exp(-e*62.0)*0.9;}',
+
+        'vec2 warp(vec2 p,float t){',
+        '  p+=uWobble*0.68*vec2(sin(p.y*0.92+t*0.52),sin(p.x*0.81-t*0.47));',
+        '  p+=uWobble*0.24*vec2(sin(p.y*2.1-t*0.71),sin(p.x*1.9+t*0.66));',
+        '  return p;',
+        '}',
+
+        'vec3 ramp(float v){',
+        '  v=clamp(v,0.0,1.0)*(uCount-1.0);vec3 c=uColors[0];',
+        '  for(int i=1;i<5;i++){float fi=float(i);if(fi<uCount){c=mix(c,uColors[i],clamp(v-(fi-1.0),0.0,1.0));}}',
+        '  return c;',
+        '}',
+
+        'float shafts(vec2 uv,float t){',
+        '  float x=uv.x+(1.0-uv.y)*0.42;',
+        '  float s=smoothstep(0.62,1.0,0.5+0.5*sin(x*8.5+t*0.16))*0.6+smoothstep(0.7,1.0,0.5+0.5*sin(x*15.0-t*0.12+1.7))*0.4;',
+        '  return s*smoothstep(0.2,1.0,uv.y);',
+        '}',
+
+        'void main(){',
+        '  vec2 uv=gl_FragCoord.xy/uRes;float asp=uRes.x/uRes.y;float t=uTime;',
+        '  vec2 p=(uv-0.5)*vec2(asp,1.0)*(4.6*uScale);',
+
+        // Cursor water lens: rings that bend the web, a soft local focus.
+        '  vec2 md=(uv-uMouse.xy)*vec2(asp,1.0);float dist=length(md);',
+        '  float ring=sin(dist*44.0-t*7.0)*exp(-dist*5.0)*uMouse.z;',
+        '  p+=md/(dist+0.001)*ring*0.11;',
+        '  float focus=uMouse.z*exp(-dist*dist*26.0)*0.32;',
+
+        '  vec2 q=warp(p,t);',
+        '  vec2 drift=vec2(t*0.035,-t*0.022);',
+        // LITE: one web for all three channels (no chromatic fringes) — half the cost.
+        '#ifdef LITE',
+        '  vec3 a=vec3(web(q+drift,t*0.9));',
+        '#else',
+        '  vec2 dir=normalize(vec2(0.8,0.6))*uDispersion*0.045;',
+        '  vec3 a=vec3(web(q+drift+dir,t*0.9),web(q+drift,t*0.9),web(q+drift-dir,t*0.9));',
+        '#endif',
+        '  float b=web(warp(p*1.65+vec2(3.1,1.7),t*1.08)-drift*1.6,t*1.12+2.0);',
+        '  vec3 w=a*0.72+b*0.34+a*b*1.4;',
+
+        '  float travel=0.6+0.4*sin(dot(uv,vec2(2.3,1.4))*1.6-t*0.55);',
+        '  float floorN=0.5+0.5*sin(p.x*0.55+t*0.07)*sin(p.y*0.47-t*0.05);',
+        '  float base=0.15+0.12*floorN;',
+        '  float r=shafts(uv,t)*uRays*0.34;',
+        '  vec3 v=base+w*uIntensity*travel*0.7+r+focus;',
+
+        '  vec3 col=vec3(ramp(v.r).r,ramp(v.g).g,ramp(v.b).b);',
+        '  float grade=mix(1.0,0.5,uDepth*smoothstep(0.75,0.0,uv.y));',
+        '  vec2 cv=(uv-0.5)*vec2(1.0,1.15);',
+        '  float vig=clamp(1.0-uDepth*1.15*dot(cv,cv),0.0,1.0);',
+        '  col=mix(uBg,col*grade,vig);',
+        '  gl_FragColor=vec4(col,1.0);',
+        '}',
+    ].join('\n');
+
+    // Quality ladder, best first: pixels drawn per frame, shader, frame rate.
+    // Desktops start at 0, phones / touch screens at 2, very weak devices at 3.
+    var LEVELS = [
+        { budget: 520000, lite: false, fps: 60 },
+        { budget: 300000, lite: false, fps: 30 },
+        { budget: 170000, lite: true, fps: 30 },
+        { budget: 100000, lite: true, fps: 24 },
+    ];
+
+    function hex(c) {
+        var m = /^#?([0-9a-f]{6})$/i.exec(String(c).trim());
+        var n = m ? parseInt(m[1], 16) : 0;
+        return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+
+    function num(el, name, def, lo, hi) {
+        var v = parseFloat(el.getAttribute('data-' + name));
+        if (isNaN(v)) {
+            v = def;
+        }
+        return Math.min(hi, Math.max(lo, v));
+    }
+
+    function mount(el) {
+        var canvas = el.querySelector('canvas') || el.appendChild(document.createElement('canvas'));
+        var opts = { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'low-power' };
+        var gl = canvas.getContext('webgl', opts) || canvas.getContext('experimental-webgl', opts);
+        if (!gl) {
+            return; // the container's CSS gradient stays
+        }
+
+        var colors = (el.getAttribute('data-colors') || '#03141f,#0a4560,#13909e,#5fe0d6,#f2fffc').split(',').slice(0, 5);
+        while (colors.length < 2) {
+            colors.push('#ffffff');
+        }
+        var cfg = {
+            bg: hex(el.getAttribute('data-bg') || '#04060c'),
+            speed: num(el, 'speed', 0.55, 0, 3),
+            scale: num(el, 'scale', 1, 0.3, 3),
+            intensity: num(el, 'intensity', 1, 0, 3),
+            dispersion: num(el, 'dispersion', 0.4, 0, 2),
+            rays: num(el, 'rays', 0.5, 0, 2),
+            depth: num(el, 'depth', 0.6, 0, 1),
+            wobble: num(el, 'wobble', 0.55, 0, 2),
+            mouse: num(el, 'mouse', 0.7, 0, 2),
+        };
+        var palette = new Float32Array(15);
+        colors.forEach(function (c, i) { palette.set(hex(c), i * 3); });
+
+        var hp = gl.getShaderPrecisionFormat && gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        var precision = hp && hp.precision > 0 ? 'precision highp float;\n' : 'precision mediump float;\n';
+
+        var small = window.matchMedia && window.matchMedia('(max-width: 768px), (pointer: coarse)').matches;
+        var weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+        var level = weak ? 3 : (small ? 2 : 0);
+
+        function shader(type, src) {
+            var s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+        }
+
+        var prog = null, loc = {};
+        function build() {
+            var vs = shader(gl.VERTEX_SHADER, VERT);
+            var fs = shader(gl.FRAGMENT_SHADER, precision + (LEVELS[level].lite ? '#define LITE\n' : '') + FRAG);
+            if (!vs || !fs) {
+                return false;
+            }
+            var next = gl.createProgram();
+            gl.attachShader(next, vs);
+            gl.attachShader(next, fs);
+            gl.linkProgram(next);
+            if (!gl.getProgramParameter(next, gl.LINK_STATUS)) {
+                return false;
+            }
+            if (prog) {
+                gl.deleteProgram(prog);
+            }
+            prog = next;
+            gl.useProgram(prog);
+            var buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+            var aPos = gl.getAttribLocation(prog, 'aPos');
+            gl.enableVertexAttribArray(aPos);
+            gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+            ['uRes', 'uTime', 'uMouse', 'uColors', 'uCount', 'uBg', 'uScale', 'uIntensity', 'uDispersion', 'uRays', 'uDepth', 'uWobble']
+                .forEach(function (n) { loc[n] = gl.getUniformLocation(prog, n); });
+            gl.uniform3fv(loc.uColors, palette);
+            gl.uniform1f(loc.uCount, colors.length);
+            gl.uniform3fv(loc.uBg, cfg.bg);
+            gl.uniform1f(loc.uScale, cfg.scale);
+            gl.uniform1f(loc.uIntensity, cfg.intensity);
+            gl.uniform1f(loc.uDispersion, cfg.dispersion);
+            gl.uniform1f(loc.uRays, cfg.rays);
+            gl.uniform1f(loc.uDepth, cfg.depth);
+            gl.uniform1f(loc.uWobble, cfg.wobble);
+            width = height = 0; // a new program needs uRes again
+            return true;
+        }
+
+        var width = 0, height = 0;
+        function resize() {
+            // Never more pixels than the level's budget, never above 1.5× density.
+            var cw = Math.max(1, el.clientWidth), ch = Math.max(1, el.clientHeight);
+            var s = Math.min(Math.min(window.devicePixelRatio || 1, 1.5), Math.sqrt(LEVELS[level].budget / (cw * ch)));
+            var w = Math.max(1, Math.round(cw * s));
+            var h = Math.max(1, Math.round(ch * s));
+            if (w !== width || h !== height) {
+                width = canvas.width = w;
+                height = canvas.height = h;
+                gl.viewport(0, 0, w, h);
+                gl.uniform2f(loc.uRes, w, h);
+            }
+        }
+
+        if (!build()) {
+            return;
+        }
+
+        var mouse = { x: 0.5, y: 0.5, s: 0, target: 0, last: 0 };
+        var seconds = 12;
+        function draw() {
+            resize();
+            gl.uniform1f(loc.uTime, seconds);
+            gl.uniform3f(loc.uMouse, mouse.x, mouse.y, mouse.s);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+
+        canvas.style.opacity = '0';
+        canvas.style.transition = 'opacity .8s ease';
+        draw();
+        canvas.style.opacity = '1';
+        var saveData = navigator.connection && navigator.connection.saveData;
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduce || saveData) {
+            window.addEventListener('resize', draw, { passive: true });
+            return; // one still frame
+        }
+
+        var host = el.closest('section') || el.parentElement || el;
+        host.addEventListener('pointermove', function (e) {
+            var r = el.getBoundingClientRect();
+            mouse.x = (e.clientX - r.left) / Math.max(1, r.width);
+            mouse.y = 1 - (e.clientY - r.top) / Math.max(1, r.height);
+            mouse.target = cfg.mouse;
+            mouse.last = performance.now();
+        }, { passive: true });
+        host.addEventListener('pointerleave', function () { mouse.target = 0; }, { passive: true });
+        var scrolledAt = 0;
+        window.addEventListener('scroll', function () { scrolledAt = performance.now(); }, { passive: true });
+
+        // Frames drawn per one-second window decide the level: a device
+        // drawing under 60% of the level's rate steps down; below the last
+        // level the hero keeps its still frame and the loop ends for good.
+        var visible = true, stopped = false, raf = 0, prev = 0, lastDraw = 0, windowStart = 0, drawn = 0;
+        function frame(now) {
+            raf = 0;
+            if (stopped || !visible || document.hidden) {
+                return;
+            }
+            if (now - scrolledAt < 160) {
+                // Skipped frames are not slow frames: the level window starts over after the scroll.
+                prev = lastDraw = windowStart = drawn = 0;
+                raf = requestAnimationFrame(frame);
+                return;
+            }
+            var interval = 1000 / LEVELS[level].fps;
+            if (lastDraw && now - lastDraw < interval - 4) {
+                raf = requestAnimationFrame(frame);
+                return;
+            }
+            var dt = prev ? Math.min(100, now - prev) : 16;
+            prev = now;
+            lastDraw = now;
+            seconds += (dt / 1000) * cfg.speed;
+            if (now - mouse.last > 1200) {
+                mouse.target = 0;
+            }
+            mouse.s += (mouse.target - mouse.s) * Math.min(1, dt / 220);
+            draw();
+            drawn++;
+            if (!windowStart) {
+                windowStart = now;
+            } else if (now - windowStart >= 1000) {
+                var expected = (now - windowStart) / interval;
+                if (drawn < expected * 0.6) {
+                    if (level < LEVELS.length - 1) {
+                        var wasLite = LEVELS[level].lite;
+                        level++;
+                        if (LEVELS[level].lite !== wasLite && !build()) {
+                            stopped = true;
+                            return;
+                        }
+                    } else {
+                        stopped = true;
+                        return;
+                    }
+                }
+                windowStart = now;
+                drawn = 0;
+            }
+            raf = requestAnimationFrame(frame);
+        }
+        function wake() {
+            if (!raf && !stopped && visible && !document.hidden) {
+                prev = lastDraw = windowStart = drawn = 0;
+                raf = requestAnimationFrame(frame);
+            }
+        }
+
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(function (entries) {
+                visible = entries[0].isIntersecting;
+                wake();
+            }).observe(el);
+        }
+        document.addEventListener('visibilitychange', wake);
+        canvas.addEventListener('webglcontextlost', function (e) {
+            e.preventDefault();
+            visible = false;
+        });
+        canvas.addEventListener('webglcontextrestored', function () {
+            prog = null;
+            if (build()) {
+                visible = true;
+                wake();
+            }
+        });
+        wake();
+    }
+
+    function init() {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-caustics]'), function (el) {
+            try {
+                mount(el);
+            } catch (e) {
+                // decorative only — the CSS background stays
+            }
+        });
+    }
+    if (typeof window !== 'undefined') {
+        window.initCaustics = init;
+    }
+
+    // Start once the page has loaded and the headline animation has had its
+    // moment: compiling the shader and the first draw must not hold up either.
+    // A load event held up by a slow asset still starts it after 5 s.
+    var started = false;
+    function start() {
+        if (started) {
+            return;
+        }
+        started = true;
+        var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1); };
+        setTimeout(function () { idle(init, { timeout: 1500 }); }, Math.max(600, 1800 - performance.now()));
+    }
+
+    if (document.readyState === 'complete') {
+        start();
+    } else {
+        window.addEventListener('load', start);
+        setTimeout(start, 5000);
+    }
+})();

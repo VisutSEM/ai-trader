@@ -1,0 +1,70 @@
+@import "tailwindcss";
+@import "./zoqira.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #04060c;
+  color: #e2e8f0;
+  overflow-x: hidden;
+}
+
+/* Ensure Zoqira typography and sections are always visible */
+.zq-letter {
+  opacity: 1 !important;
+  transform: none !important;
+  display: inline-block;
+}
+
+[data-reveal],
+[data-reveal-group] > * {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: none !important;
+}
+
+.is-revealed {
+  opacity: 1 !important;
+}
+
+/* Ensure shimmer is visible and animated */
+.text-shimmer {
+  background: linear-gradient(110deg, #fff 20%, #8d8d94 40%, #fff 52%, #d8d8de 64%, #fff 80%) 0 0 / 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  display: inline-block;
+}
+
+/* Ensure rail is visible on desktop and tablet */
+@media (min-width: 768px) {
+  .lp-rail {
+    display: flex !important;
+  }
+}
+
+/* Custom sleek trading scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f141d;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
