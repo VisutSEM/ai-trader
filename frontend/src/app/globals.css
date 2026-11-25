@@ -68,3 +68,25 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Auto-scrolling infinite ticker bar marquee */
+@keyframes ticker-marquee-scroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-ticker-marquee {
+  display: flex;
+  width: max-content;
+  animation: ticker-marquee-scroll 35s linear infinite;
+  will-change: transform;
+}
+
+.animate-ticker-marquee:hover {
+  animation-play-state: paused;
+}
+
