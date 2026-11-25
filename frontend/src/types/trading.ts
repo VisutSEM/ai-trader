@@ -156,3 +156,41 @@ export interface Signal {
   timeframe: string;
   strategy: string;
 }
+
+export interface AiModelVote {
+  modelName: 'Claude 3.7' | 'ChatGPT-4o' | 'DeepSeek-R1' | 'Gemini 2.0';
+  provider: 'Anthropic' | 'OpenAI' | 'DeepSeek' | 'Google';
+  action: 'buy' | 'sell' | 'hold';
+  confidence: number;
+  color: string;
+  thesis: string;
+  specialty: string;
+}
+
+export interface MultiAiEnsembleSignal {
+  id: string;
+  symbol: string;
+  display_name: string;
+  category: 'commodities' | 'crypto' | 'forex';
+  price: number;
+  change_24h: number;
+  consensusAction: 'buy' | 'sell';
+  consensusVerdict: string;
+  consensusScore: number;
+  winRate: number;
+  agreementRatio: string;
+  entry: number;
+  target1: number;
+  target2: number;
+  stop_loss: number;
+  risk_reward: string;
+  timeframe: string;
+  macroSentiment: string;
+  ensembleAnalysis: string;
+  models: {
+    claude: AiModelVote;
+    chatgpt: AiModelVote;
+    deepseek: AiModelVote;
+    gemini: AiModelVote;
+  };
+}

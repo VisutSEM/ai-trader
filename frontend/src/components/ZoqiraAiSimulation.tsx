@@ -77,7 +77,7 @@ export const ZoqiraAiSimulation: React.FC<ZoqiraAiSimulationProps> = ({
         step: 2,
         delay: 3200,
         action: () => {
-          setLogText('convening AI council · 4 specialized models debating thesis');
+          setLogText('convening AI council · Claude 3.7, ChatGPT-4o, DeepSeek-R1 & Gemini 2.0 debating thesis');
           setAnalystVotes(['SELL', 'SELL', 'SELL', 'HOLD']);
           setConsensusCount(3);
         },
@@ -297,29 +297,29 @@ export const ZoqiraAiSimulation: React.FC<ZoqiraAiSimulationProps> = ({
                   </div>
 
                   {[
-                    { role: 'TA', label: 'Technical', desc: 'Lower highs into supply zone', vote: 'SELL' },
-                    { role: 'NEWS', label: 'Macro Sentiment', desc: 'Yields firm, dollar bid pressure', vote: 'SELL' },
-                    { role: 'FLOW', label: 'Order Flow', desc: 'Institutional sell liquidity resting', vote: 'SELL' },
-                    { role: 'RISK', label: 'Risk Guard', desc: 'R:R 1:2.4 meets discipline threshold', vote: 'HOLD' },
+                    { role: 'Claude 3.7', label: 'Anthropic Claude', desc: 'Lower highs into supply zone; macro risk check', vote: 'SELL', icon: '🟣' },
+                    { role: 'ChatGPT-4o', label: 'OpenAI GPT-4o', desc: 'Bearish reversal pattern with rising sell volume', vote: 'SELL', icon: '🟢' },
+                    { role: 'DeepSeek-R1', label: 'DeepSeek Quant', desc: 'Order flow imbalance: $48M ask absorption', vote: 'SELL', icon: '🔵' },
+                    { role: 'Gemini 2.0', label: 'Google Gemini', desc: 'Multi-modal chart vision flags supply rejection', vote: 'SELL', icon: '🔷' },
                   ].map((council, i) => (
                     <div
                       key={council.role}
                       className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.03] border border-white/5"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/20 text-amber-300 font-bold text-xs flex items-center justify-center">
-                          {council.role}
+                        <span className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/20 text-amber-300 font-bold text-base flex items-center justify-center">
+                          {council.icon}
                         </span>
                         <div>
-                          <p className="text-xs font-semibold text-white">{council.label}</p>
+                          <p className="text-xs font-semibold text-white">{council.role} <span className="text-[10px] text-slate-400">({council.label})</span></p>
                           <p className="text-[11px] text-slate-400">{council.desc}</p>
                         </div>
                       </div>
                       <span
-                        className={`text-xs font-bold px-2 py-1 rounded-md ${
+                        className={`text-xs font-bold px-2.5 py-1 rounded-md ${
                           council.vote === 'SELL'
                             ? 'bg-red-500/15 text-red-400 border border-red-500/30'
-                            : 'bg-slate-700/50 text-slate-300'
+                            : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                         }`}
                       >
                         {council.vote}
